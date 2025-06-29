@@ -3,8 +3,8 @@ from collections import defaultdict
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
-from .models import MealType
-from .serializers import MealTypeSerializer
+from .models import MealType, MenuItem
+from .serializers import *
 from .permission import IsSuperAdmin, IsAdmin
 from drf_yasg.utils import swagger_auto_schema
 
@@ -49,7 +49,7 @@ class MealTypeCrud(APIView):
     
     def get(self, request, id: int = None):
         meal_type = MealType.objects.get(id=id)
-        serializer = MealTypeSerializer(meal_type)
+        serializer = MealTypeDetailSerializer(meal_type)
         return Response(serializer.data, status=status.HTTP_200_OK)
     
     def put(self, request, id: int = None):
@@ -58,7 +58,7 @@ class MealTypeCrud(APIView):
             return Response({'detail': 'Access Denied'}, status=status.HTTP_403_FORBIDDEN)
         
         meal_type = MealType.objects.get(id=id)
-        serializer = MealTypeSerializer(meal_type, data=request.data)
+        serializer = MealTypeDetailSerializer(meal_type, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
@@ -101,3 +101,83 @@ class MenuItemListAPIView(APIView):
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         return Response({"detail": "Unauthorized role"}, status=status.HTTP_403_FORBIDDEN)
+
+
+class MenuItemCreateAPIView(APIView):
+    authentication_classes = [LaravelPassportAuthentication]
+    permission_classes = [IsSuperAdmin | IsAdmin]
+
+    @swagger_auto_schema(
+        request_body=MenuItemSerializer,
+        operation_summary="Yangi MenuItem yaratish",
+        responses={201: MenuItemSerializer()}
+    )
+    def post(self, request):
+        serializer = MenuItemCreateUpdateSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# 🔵 Retrieve by ID
+class MenuItemDetailAPIView(APIView):
+    authentication_classes = [LaravelPassportAuthentication]
+    permission_classes = [IsSuperAdmin | IsAdmin | IsParent | IsStudent]
+
+    @swagger_auto_schema(
+        operation_summary="MenuItem ni ID bo‘yicha olish",
+        responses={200: MenuItemDetailSerializer()}
+    )
+    def get(self, request, pk):
+        item = get_object_or_404(MenuItem, pk=pk)
+
+        # Faqat o‘ziga tegishli bo‘lsa yoki superadmin
+        if request.user.role_id != 1 and item.school_id != request.user.school_id:
+            return Response({"detail": "Access denied"}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = MenuItemDetailSerializer(item)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+# 🟡 Update
+class MenuItemUpdateAPIView(APIView):
+    authentication_classes = [LaravelPassportAuthentication]
+    permission_classes = [IsSuperAdmin | IsAdmin]
+
+    @swagger_auto_schema(
+        request_body=MenuItemSerializer,
+        operation_summary="MenuItem yangilash",
+        responses={200: MenuItemSerializer()}
+    )
+    def put(self, request, pk):
+        item = get_object_or_404(MenuItem, pk=pk)
+
+        # Admin faqat o‘zining maktabidagi itemni tahrirlashi mumkin
+        if request.user.role_id != 1 and item.school_id != request.user.school_id:
+            return Response({"detail": "Access denied"}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = MenuItemSerializer(item, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# 🔴 Delete
+class MenuItemDeleteAPIView(APIView):
+    authentication_classes = [LaravelPassportAuthentication]
+    permission_classes = [IsSuperAdmin | IsAdmin]
+
+    @swagger_auto_schema(
+        operation_summary="MenuItem ni o‘chirish",
+        responses={204: 'Deleted'}
+    )
+    def delete(self, request, pk):
+        item = get_object_or_404(MenuItem, pk=pk)
+
+        if request.user.role_id != 1 and item.school_id != request.user.school_id:
+            return Response({"detail": "Access denied"}, status=status.HTTP_403_FORBIDDEN)
+
+        item.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
